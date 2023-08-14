@@ -1,0 +1,17 @@
+runtime: nodejs
+env: flex
+service: production-server
+
+handlers:
+  - url: /.*
+    secure: always
+    script: auto
+
+automatic_scaling:
+  min_num_instances: 1
+  max_num_instances: 3
+  cpu_utilization:
+    target_utilization: 0.75
+
+network:
+  session_affinity: true

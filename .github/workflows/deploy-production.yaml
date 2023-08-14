@@ -1,0 +1,69 @@
+name: Deploy Production News Server to GCP App Engine
+
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Detect package manager
+        id: detect-package-manager
+        run: |
+          if [ -f "${{ github.workspace }}/yarn.lock" ]; then
+            echo "::set-output name=manager::yarn"
+            echo "::set-output name=command::install"
+            echo "::set-output name=runner::yarn"
+            exit 0
+          elif [ -f "${{ github.workspace }}/package.json" ]; then
+            echo "::set-output name=manager::npm"
+            echo "::set-output name=command::ci"
+            echo "::set-output name=runner::npx --no-install"
+            exit 0
+          else
+            echo "Unable to determine packager manager"
+            exit 1
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16.20.0'
+          cache: ${{ steps.detect-package-manager.outputs.manager }}
+
+      - name: Install dependencies
+        run: ${{ steps.detect-package-manager.outputs.manager }} ${{ steps.detect-package-manager.outputs.command }}
+
+      - name: Complile TS
+        run: |
+          echo '${{ secrets.PRODUCTION_SERVER_ENV }}' > ./.env
+          mkdir authKey
+          echo '${{ secrets.PRODUCTION_SERVER_GCP_SERVICE_ACCOUNT_KEY }}' > ./authKey/service_account_key.json
+          yarn run build
+
+      - id: 'auth'
+        name: 'Authenticate with GCP'
+        uses: 'google-github-actions/auth@v0'
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+      - id: 'deploy'
+        name: 'Deploy to App Engine'
+        uses: 'google-github-actions/deploy-appengine@v1'
+        with:
+          deliverables: app.yaml,dispatch.yaml
+          project_id: ${{ secrets.GCP_PROJECT }}
+
+      - name: 'Check Deployment'
+        run: 'curl "${{ steps.deploy.outputs.url }}"'
+
+      - id: 'delete-old-versions'
+        name: 'Delete old versions'
+        run: gcloud app versions list --service=production-server  --format="value(version.id)" --sort-by="~version.createTime" | tail -n +3  | xargs -r gcloud app versions delete --quiet

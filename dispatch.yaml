@@ -1,0 +1,6 @@
+dispatch:
+  - url: 'here.news/*'
+    service: default
+
+  - url: 'api.here.news/*'
+    service: production-server
